@@ -1,0 +1,83 @@
+name: Deploy Node.js Application
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e  # Detener en caso de error
+            
+            echo "🚀 Iniciando actualización de aplicación..."
+            
+            # Variables
+            APP_DIR="/var/www/backendtTheBreakTime"
+            BACKUP_DIR="/var/www/backup/$(date +%Y%m%d_%H%M%S)"
+            PM2_APP_NAME="backend-api"
+            
+            # Verificar que el directorio existe
+            if [ ! -d "$APP_DIR" ]; then
+              echo "❌ Error: Directorio de aplicación no existe: $APP_DIR"
+              exit 1
+            fi
+  
+            # Crear respaldo rápido
+            echo "📦 Creando respaldo..."
+            mkdir -p "$BACKUP_DIR"
+            cp "$APP_DIR/.env" "$BACKUP_DIR/" 2>/dev/null || true
+            cp "$APP_DIR/package.json" "$BACKUP_DIR/" 2>/dev/null || true
+            echo "✅ Respaldo creado en: $BACKUP_DIR"
+            
+            # Ir al directorio de la aplicación
+            cd "$APP_DIR"
+            
+            # Actualizar código desde Git
+            echo "📥 Actualizando código desde Git..."
+            git fetch origin
+            git reset --hard origin/master
+            
+            # Verificar que el archivo principal existe
+            if [ ! -f "index.js" ]; then
+              echo "❌ Error: index.js no encontrado después de la actualización"
+              exit 1
+            fi
+            
+            # Actualizar dependencias solo si package.json cambió
+            if ! cmp -s "package.json" "$BACKUP_DIR/package.json" 2>/dev/null; then
+              echo "📦 Actualizando dependencias..."
+              npm ci --production
+            else
+              echo "✅ No hay cambios en package.json, omitiendo instalación de dependencias"
+            fi
+            
+            # Reiniciar aplicación con PM2
+            echo "🔄 Reiniciando aplicación..."
+            pm2 reload "$PM2_APP_NAME" --update-env || pm2 start index.js --name "$PM2_APP_NAME"
+            
+            # Verificar que la aplicación está ejecutándose
+            sleep 3
+            if pm2 describe "$PM2_APP_NAME" | grep -q "online"; then
+              echo "✅ Aplicación actualizada y ejecutándose correctamente"
+              pm2 save
+            else
+              echo "❌ Error: La aplicación no se inició correctamente"
+              exit 1
+            fi
+            
+            # Limpiar respaldos antiguos (mantener solo los últimos 3)
+            find /var/www/backup -maxdepth 1 -type d -name "20*" | sort -r | tail -n +4 | xargs -r rm -rf
+            echo "🧹 Respaldos antiguos eliminados, manteniendo solo los últimos 3"
+            echo "🎉 ¡Actualización completada exitosamente!"
