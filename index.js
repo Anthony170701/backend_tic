@@ -27,7 +27,25 @@ console.log("SMTP_PASS:", process.env.SMTP_PASS);
 // =====================
 // Middlewares
 // =====================
-app.use(cors());
+const corsOptions = {
+  origin: [
+    "http://localhost:4200",
+    "http://localhost:8100",
+    "http://localhost",
+    "https://localhost",
+    "capacitor://localhost",
+    "ionic://localhost",
+    "https://aristos-klz.com",
+    "https://www.aristos-klz.com",
+    "https://api.aristos-klz.com"
+  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 // ✅ importante: JSON y urlencoded (ayuda a parsear bien algunos casos)
 app.use(express.json());
